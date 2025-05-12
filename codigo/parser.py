@@ -30,4 +30,9 @@ def read_csv(file_path='pokedex.csv'):
             pokemon = Pokemon(id, name, types, info)
             pokemons.append(pokemon)
             
-    return
+    return pokemons
+
+if __name__ == "__main__":
+    pokemons = read_csv()
+    for pokemon in pokemons:
+        print(f"ID: {pokemon.get_id()}, Name: {pokemon.get_name()}, Types: {pokemon.get_types()}, Info: {pokemon.get_info()}")

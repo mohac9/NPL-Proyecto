@@ -10,7 +10,7 @@ print("Loading corpus ...")
 print("#"*30)
 
 # Ruta del archivo CSV
-csv_path = "./NPL-Proyecto/codigo/pokedex.csv"
+csv_path = "./pokedex.csv"
 
 # Extraer el campo "info" y guardarlo en un archivo de texto
 info_text_path = "info_corpus.txt"

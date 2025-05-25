@@ -1,5 +1,6 @@
 import nltk
 import parser as ps
+from nltk.probability import FreqDist
 
 # Get the description of the pokemons
 descriptions = {}
@@ -15,9 +16,10 @@ for pokemon in pokemons:
     tagged_descriptions[pokemon.get_id()] = tagged_description
 
 # Print the tagged descriptions
+'''
 for pokemon_id, tagged_description in tagged_descriptions.items():
     print(f"ID: {pokemon_id}, Tagged Description: {tagged_description}")
-
+'''
 #Search untagged words
 def search_untagged_words(tagged_descriptions):
     untagged_words = []
@@ -73,12 +75,36 @@ regexp_tagger = nltk.RegexpTagger(
     ]
 )
 # Lookup tagger
-#Get most common words 
-from nltk.probability import FreqDist
-most_common_words = nltk.FreqDist(
-    word for tagged_description in tagged_descriptions.values() 
-    for word, _ in tagged_description
-).most_common(100)
+#Obtain information
+all_words = []
+for pokemon in pokemons:
+    description = pokemon.get_info()
+    tokens = nltk.word_tokenize(description)
+    all_words.extend(tokens)
+
+# Create frequency distribution
+fdist = FreqDist(all_words)
+cfd = nltk.ConditionalFreqDist((word.lower(), tag) for (word, tag) in nltk.pos_tag(all_words))
+most_freq_words = fdist.most_common(100)
+likely_tags = {}
+for word, _ in most_freq_words:
+    word_lower = word.lower()
+    
+    if word_lower in cfd and len(cfd[word_lower]) > 0:
+        likely_tags[word] = cfd[word_lower].max()
+    else:
+        likely_tags[word] = 'NN'  # Default to noun
+    #print(f"Word: {word}, Likely Tag: {likely_tags[word]}")
+lookup_tagger = nltk.UnigramTagger(model=likely_tags)
+
+
+# Print the 20 most common words
+'''
+print("Most common words in Pokemon descriptions:")
+for word, freq in fdist.most_common(20):
+    print(f"{word}: {freq}")
+'''
+
 
 #Test the taggers
 def test_tagger(tagger, tagged_descriptions):
@@ -94,32 +120,101 @@ def test_tagger(tagger, tagged_descriptions):
             total += 1
     return correct / total if total > 0 else 0
 
-# Test the default tagger
-default_accuracy = test_tagger(default_tagger, tagged_descriptions)
-print(f"Default Tagger Accuracy: {default_accuracy:.2f}")
 
-# Test the regular expression tagger
-regexp_accuracy = test_tagger(regexp_tagger, tagged_descriptions)
-print(f"Regexp Tagger Accuracy: {regexp_accuracy:.2f}")
+# N-gram tagger
 
-#Test performance 
-def performance(cfd, wordlist):
-    lt = dict((word, cfd[word].max()) for word in wordlist)
-    baseline_tagger = nltk.UnigramTagger(model=lt, backoff=nltk.DefaultTagger('NN'))
-    return baseline_tagger.evaluate(brown.tagged_sents(categories='news'))
+training_data = [] 
+#80 % of entries for training
+for pokemon in pokemons[:int(len(pokemons) * 0.8)]:
+    description = pokemon.get_info()
+    tokens = nltk.word_tokenize(description)
+    tagged_tokens = nltk.pos_tag(tokens)
+    training_data.append(tagged_tokens)
 
-def display():
-    import pylab
-    word_freqs = nltk.FreqDist(brown.words(categories='news')).most_common()
-    words_by_freq = [w for (w, _) in word_freqs]
-    cfd = nltk.ConditionalFreqDist(brown.tagged_words(categories='news'))
-    sizes = 2 ** pylab.arange(15)
-    perfs = [performance(cfd, words_by_freq[:size]) for size in sizes]
-    pylab.plot(sizes, perfs, '-bo')
-    pylab.title('Lookup Tagger Performance with Varying Model Size')
-    pylab.xlabel('Model Size')
-    pylab.ylabel('Performance')
-    pylab.show()
+testing_data = []
+# Rest 20% for testing
+for pokemon in pokemons[int(len(pokemons) * 0.8):]:
+    description = pokemon.get_info()
+    tokens = nltk.word_tokenize(description)
+    tagged_tokens = nltk.pos_tag(tokens)
+    testing_data.append(tagged_tokens)
+    
+# Unigram tagger
+unigram_tagger = nltk.UnigramTagger(training_data, backoff=default_tagger)
+# Bigram tagger
+bigram_tagger = nltk.BigramTagger(training_data, backoff=unigram_tagger)
+# Trigram tagger
+trigram_tagger = nltk.TrigramTagger(training_data, backoff=bigram_tagger)
 
-# Display the performance graph
-display()
+# Test the n-gram taggers, use testing data
+def test_ngram_tagger(tagger, testing_data):
+    correct = 0
+    total = 0
+    for tagged_tokens in testing_data:
+        words = [word for word, _ in tagged_tokens]
+        tags = [tag for _, tag in tagged_tokens]
+        predicted_tags = tagger.tag(words)
+        for (word, tag), (_, predicted_tag) in zip(tagged_tokens, predicted_tags):
+            if tag == predicted_tag:
+                correct += 1
+            total += 1
+    return correct / total if total > 0 else 0
+
+#Tagger combination
+# Unigram tagger + lookup tagger
+t_ul = nltk.UnigramTagger(training_data, backoff=lookup_tagger)
+
+
+# Unigram tagger + regexp tagger
+t_ur = nltk.UnigramTagger(training_data, backoff=regexp_tagger)
+
+
+# Bigram tagger + lookup tagger
+t_bl = nltk.BigramTagger(training_data, backoff=lookup_tagger)
+
+# Bigram tagger + regexp tagger
+t_br = nltk.BigramTagger(training_data, backoff=regexp_tagger)
+
+# Trigram tagger + lookup tagger
+t_tl = nltk.TrigramTagger(training_data, backoff=lookup_tagger)
+# Trigram tagger + regexp tagger
+t_tr = nltk.TrigramTagger(training_data, backoff=regexp_tagger)
+
+
+
+
+#Evaluate the taggers performance : time eval
+import time
+def evaluate_tagger_performance(tagger, testing_data):
+    start_time = time.time()
+    accuracy = test_ngram_tagger(tagger, testing_data)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    return accuracy, elapsed_time
+# Evaluate the performance of each tagger
+taggers = {
+    "Default": default_tagger,
+    "Regexp": regexp_tagger,
+    "Lookup": lookup_tagger,
+    "Unigram": unigram_tagger,
+    "Bigram": bigram_tagger,
+    "Trigram": trigram_tagger,
+    "Unigram + Lookup": t_ul,
+    "Unigram + Regexp": t_ur,
+    "Bigram + Lookup": t_bl,
+    "Bigram + Regexp": t_br,
+    "Trigram + Lookup": t_tl,
+    "Trigram + Regexp": t_tr
+}
+performance_results = {}
+for name, tagger in taggers.items():
+    accuracy, elapsed_time = evaluate_tagger_performance(tagger, testing_data)
+    performance_results[name] = {
+        "Accuracy": accuracy,
+        "Time (seconds)": elapsed_time
+    }
+# Print the performance results
+print("\nTagger Performance Results:")
+for name, results in performance_results.items():
+    print(f"{name}: Accuracy = {results['Accuracy']:.2f}, Time = {results['Time (seconds)']:.4f}")
+    

@@ -5,35 +5,36 @@ from nltk import pos_tag
 from nltk.corpus import words as nltk_words
 import pandas as pd
 from parser import read_csv, Pokemon
+import re
 
-# 0. Cargar el corpus de descripciones desde CSV
+# 0. Load the description corpus from CSV
 pokedex_data = read_csv('pokedex.csv')
-# Manejar diferentes estructuras retornadas por read_csv
+# Handle different structures returned by read_csv
 if isinstance(pokedex_data, list) and pokedex_data and isinstance(pokedex_data[0], Pokemon):
-    # Lista de objetos Pokemon
+    # List of Pokemon objects
     sentences = [str(p.get_info()) for p in pokedex_data]
 elif isinstance(pokedex_data, pd.DataFrame):
     sentences = pokedex_data['Info'].astype(str).tolist()
 elif isinstance(pokedex_data, list) and isinstance(pokedex_data[0], dict):
     sentences = [str(entry.get('Info', '')) for entry in pokedex_data]
 else:
-    # Otras estructuras (dict de listas, etc.)
+    # Other structures (dict of lists, etc.)
     df_pokedex = pd.DataFrame(pokedex_data)
     sentences = df_pokedex['Info'].astype(str).tolist()
 
-# 1. Ejemplos de frases ambiguas en el corpus
+# Examples of potentially ambiguous sentences in the corpus
 ambiguous = []
 for sent in sentences:
     tokens = word_tokenize(sent)
     if any(tok.lower() in {'that', 'and', 'or', 'but'} for tok in tokens):
         ambiguous.append(sent)
 
-print("Ejemplos de oraciones potencialmente ambiguas:")
+print("Examples of potentially ambiguous sentences:")
 for s in ambiguous[:5]:
     print('-', s)
 
-# 2. Definir una gramática CFG dinámica que cubra todas las palabras del corpus
-# Base de reglas estructurales
+# Define a dynamic CFG grammar covering all corpus words
+# Base structural rules
 grammar_rules = [
     "S -> NP VP",
     "NP -> Det N | Adj N | N | NP PP",
@@ -43,41 +44,60 @@ grammar_rules = [
     "Adj -> 'toxic' | 'poison' | 'ghost' | 'toxicmochi'",
     "P -> 'that' | 'under' | 'to' | 'on' | 'in' | 'with'"
 ]
-# Recolectar el vocabulario del corpus para generar reglas léxicas
+
+# ---Collect vocabulary and filter only alphabetic words ---
 vocab = set()
 for sent in sentences:
     for w in word_tokenize(sent.lower()):
-        # escapa comillas simples en la palabra
-        token = w.replace("'", "\'")
-        vocab.add(token)
-# Generar reglas léxicas: cada token como categoría LEX
-grammar_rules.append("LEX -> " + " | ".join(f"'{w}'" for w in vocab))
-# Extender producciones para permitir LEX en nominativos y verbos
+        vocab.add(w)
+
+# Filter: only alphabetic strings (adjust pattern if apostrophes are needed)
+filtered_vocab = {w for w in vocab if re.fullmatch(r"[a-zA-Z]+", w)}
+if not filtered_vocab:
+    raise ValueError("No valid tokens after filtering punctuation and numbers.")
+
+# --- Generate the LEX rule with filtered vocabulary ---
+lex_rule = "LEX -> " + " | ".join(f"'{w}'" for w in sorted(filtered_vocab))
+grammar_rules.append(lex_rule)
 grammar_rules.append("N -> LEX")
 grammar_rules.append("V -> LEX")
 
-# Construir y cargar la gramática CFG
-grammar_text = ''.join(grammar_rules)
+# ---Build the grammar text with line breaks ---
+grammar_text = "\n".join(grammar_rules)
 
-grammar = CFG.fromstring(grammar_text)
+# For debugging, print the grammar text:
+print("=== grammar_text ===")
+print(grammar_text)
 
-# 3. Probar distintos parsers con la primera frase Probar distintos parsers con la primera frase
-sent_test = word_tokenize(sentences[0].lower())
+# ---Attempt to create the grammar and display error if it fails ---
+try:
+    grammar = CFG.fromstring(grammar_text)
+except Exception as e:
+    print("Error parsing CFG grammar:", e)
+    raise  # to see full stack trace on failure
+
+# At this point `grammar` exists; you can instantiate parsers…
+sent_test = word_tokenize(sentences[0].lower())  # use the first sentence as example
 parsers = {
     'RecursiveDescent': RecursiveDescentParser(grammar),
-    'ShiftReduce': ShiftReduceParser(grammar),
-    'LeftCorner': LeftCornerChartParser(grammar),
-    'Chart': ChartParser(grammar)
+    'ShiftReduce':    ShiftReduceParser(grammar),
+    'LeftCorner':     LeftCornerChartParser(grammar),
+    'Chart':          ChartParser(grammar)
 }
 for name, parser in parsers.items():
     try:
         trees = list(parser.parse(sent_test))
-        print(f"{name} produce {len(trees)} árboles")
+        print(f"{name} produced {len(trees)} trees")
     except Exception as e:
         print(f"{name} error: {e}")
 
-# 4. Construir Well-Formed Substring Table (WFST)
-def build_wfst(parser, tokens):
+# Build Well-Formed Substring Table (WFST)
+def build_wfst(parser, sentence):
+    print(sentence)
+    tokens = [
+        w for w in word_tokenize(sentence.lower())
+        if w.isalpha()
+    ]
     chart = parser.chart_parse(tokens)
     wf_table = [[False]*len(tokens) for _ in range(len(tokens))]
     for edge in chart.edges():
@@ -85,40 +105,34 @@ def build_wfst(parser, tokens):
         wf_table[s][e-1] = True
     return wf_table
 
-wfst = build_wfst(parsers['Chart'], sent_test)
+wfst = build_wfst(parsers['Chart'], " ".join(sent_test))
 print("WFST:")
 for row in wfst:
     print(row)
 
-# 5. Dependency Grammar de ejemplo
-dep_grammar_text = """
-'feeds' -> 'NP' 'NP'
-'draw' -> 'NP' 'NP'
-"""
-dep_grammar = DependencyGrammar.fromstring(dep_grammar_text)
-dep_parser = parse.ProjectiveDependencyParser(dep_grammar)
-try:
-    print(list(dep_parser.parse(sent_test)))
-except:
-    print("No se pudo parsear dependencias con esta gramática.")
+sent_test = word_tokenize(sentences[1024].lower())  # use the last sentence as example
 
-# 6. Ambigüedad vs tamaño de gramática
-trees = list(parsers['Chart'].parse(sent_test))
-print(f"Producciones CFG: {len(grammar.productions())}, Árboles generados: {len(trees)}")
-
-# 7. Gramática Libre de Contexto Probabilista (PCFG) - probabilidades correctas:
+# Probabilistic Context-Free Grammar (PCFG) - with proper probabilities:
 pcfg_text = """
-S -> NP VP [1.0]
-NP -> Det N [0.25] | Adj N [0.25] | N [0.25] | NP PP [0.25]
-VP -> V NP [0.5] | V NP PP [0.3] | V [0.2]
+S -> NP VP [0.8] | S Conj S [0.2]
+NP -> Det N [0.15] | Adj N [0.15] | N [0.15] | NP PP [0.15] | NP Conj NP [0.4]
+VP -> V NP [0.4] | V NP PP [0.2] | V [0.1] | VP Conj VP [0.3]
 PP -> P NP [1.0]
-Det -> 'the' [0.5] | 'a' [0.3] | 'an' [0.2]
+Det -> 'the' [0.1667] | 'a' [0.1667] | 'an' [0.1667] | 'it' [0.1667] | 'others' [0.1667] | 'its' [0.1667]
 Adj -> 'toxic' [0.25] | 'poison' [0.25] | 'ghost' [0.25] | 'toxicmochi' [0.25]
-N -> 'mochi' [0.5] | 'desires' [0.5]
-V -> 'feeds' [1.0]
-P -> 'that' [1.0]
+N -> 'mochi' [0.111] | 'desires' [0.111] | 'capabilities' [0.111] | 'those' [0.111] | 'pecharunt' [0.111] | 'control' [0.111] | 'will' [0.111] | 's' [0.111] | 'who' [0.111]
+V -> 'feeds' [0.1667] | 'draw' [0.1667] | 'eat' [0.1667] | 'fall' [0.1667] | 'chained' [0.1667] | 'out' [0.1667]
+P -> 'that' [0.3333] | 'under' [0.3333] | 'to' [0.3333]
+Conj -> 'and' [1.0]
 """
 pcfg = PCFG.fromstring(pcfg_text)
 pcfg_parser = parse.ViterbiParser(pcfg)
-trees_viterbi = list(pcfg_parser.parse(sent_test))
-print(f"PCFG Viterbi generó {len(trees_viterbi)} árboles")
+tokens_pcfg = [w for w in sent_test if w.isalpha()]
+print("Tokens for PCFG:", tokens_pcfg)
+if tokens_pcfg:
+    trees_v = list(pcfg_parser.parse(tokens_pcfg))
+    print(f"PCFG Viterbi generated {len(trees_v)} trees")
+else:
+    print("No tokens compatible with the PCFG.")
+
+

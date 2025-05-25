@@ -185,6 +185,7 @@ t_tr = nltk.TrigramTagger(training_data, backoff=regexp_tagger)
 
 #Evaluate the taggers performance : time eval
 import time
+import re
 def evaluate_tagger_performance(tagger, testing_data):
     start_time = time.time()
     accuracy = test_ngram_tagger(tagger, testing_data)
@@ -218,3 +219,53 @@ print("\nTagger Performance Results:")
 for name, results in performance_results.items():
     print(f"{name}: Accuracy = {results['Accuracy']:.2f}, Time = {results['Time (seconds)']:.4f}")
     
+#Most common phrase structures
+def most_common_phrase_structures(tagged_descriptions, n=10):
+    phrase_structures = FreqDist()
+    for pokemon_id, tagged_description in tagged_descriptions.items():
+        structure = ' '.join(tag for _, tag in tagged_description)
+        phrase_structures[structure] += 1
+    return phrase_structures.most_common(n)
+
+# Get the most common phrase structures
+def get_phrase_structures_by_sentence(tagged_descriptions, n=10):
+    phrase_structures = FreqDist()
+    sentence_splitter = re.compile(r'(?<=[.!?])\s+')
+    for pokemon_id, tagged_description in tagged_descriptions.items():
+        # Reconstruct the description from tokens
+        words = [word for word, _ in tagged_description]
+        description = ' '.join(words)
+        sentences = sentence_splitter.split(description)
+        # Tag each sentence separately
+        for sentence in sentences:
+            tokens = nltk.word_tokenize(sentence)
+            tagged_sentence = nltk.pos_tag(tokens)
+            structure = ' '.join(tag for _, tag in tagged_sentence)
+            if structure:  # Avoid empty sentences
+                phrase_structures[structure] += 1
+    print(f"Total sentences processed: {len(phrase_structures)}")
+    print(f"Total count of all sentences: {sum(phrase_structures.values())}")
+    return phrase_structures.most_common(n)
+
+
+# Get the most common phrase structures by separated sentences
+common_sentence_structures = get_phrase_structures_by_sentence(tagged_descriptions)
+print("\nMost common phrase structures by sentence:")
+for structure, count in common_sentence_structures:
+    print(f"{structure} ({count})")
+    
+# Get most common word for each tag
+def most_common_word_per_tag(tagged_descriptions):
+    tag_word_freq = {}
+    for pokemon_id, tagged_description in tagged_descriptions.items():
+        for word, tag in tagged_description:
+            if tag not in tag_word_freq:
+                tag_word_freq[tag] = FreqDist()
+            tag_word_freq[tag][word.lower()] += 1
+    most_common_words = {tag: fdist.max() for tag, fdist in tag_word_freq.items()}
+    return most_common_words
+# Get the most common word for each tag
+most_common_words = most_common_word_per_tag(tagged_descriptions)
+print("\nMost common word for each tag:")
+for tag, word in most_common_words.items():
+    print(f"{tag}: {word}")

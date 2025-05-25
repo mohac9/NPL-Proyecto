@@ -76,39 +76,6 @@ except Exception as e:
     print("Error parsing CFG grammar:", e)
     raise  # to see full stack trace on failure
 
-# At this point `grammar` exists; you can instantiate parsers…
-sent_test = word_tokenize(sentences[0].lower())  # use the first sentence as example
-parsers = {
-    'RecursiveDescent': RecursiveDescentParser(grammar),
-    'ShiftReduce':    ShiftReduceParser(grammar),
-    'LeftCorner':     LeftCornerChartParser(grammar),
-    'Chart':          ChartParser(grammar)
-}
-for name, parser in parsers.items():
-    try:
-        trees = list(parser.parse(sent_test))
-        print(f"{name} produced {len(trees)} trees")
-    except Exception as e:
-        print(f"{name} error: {e}")
-
-# Build Well-Formed Substring Table (WFST)
-def build_wfst(parser, sentence):
-    print(sentence)
-    tokens = [
-        w for w in word_tokenize(sentence.lower())
-        if w.isalpha()
-    ]
-    chart = parser.chart_parse(tokens)
-    wf_table = [[False]*len(tokens) for _ in range(len(tokens))]
-    for edge in chart.edges():
-        s, e = edge.span()
-        wf_table[s][e-1] = True
-    return wf_table
-
-wfst = build_wfst(parsers['Chart'], " ".join(sent_test))
-print("WFST:")
-for row in wfst:
-    print(row)
 
 sent_test = word_tokenize(sentences[1024].lower())  # use the last sentence as example
 

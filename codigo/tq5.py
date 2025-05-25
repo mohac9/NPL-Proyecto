@@ -269,3 +269,17 @@ most_common_words = most_common_word_per_tag(tagged_descriptions)
 print("\nMost common word for each tag:")
 for tag, word in most_common_words.items():
     print(f"{tag}: {word}")
+
+# Confusion matrix for best tagger
+def tag_list(tagged_sents):
+    return [tag for sent in tagged_sents for (word, tag) in sent]
+def apply_tagger(tagger, tagged_sents):
+    return [tagger.tag([word for (word, tag) in sent]) for sent in tagged_sents]
+
+gold = tag_list(testing_data)
+test = tag_list(apply_tagger(t_ur, testing_data))
+
+from nltk.metrics import ConfusionMatrix
+cm = nltk.ConfusionMatrix(gold, test)
+print(cm.pretty_format(sort_by_count=True, show_percents=True, truncate=9))
+
